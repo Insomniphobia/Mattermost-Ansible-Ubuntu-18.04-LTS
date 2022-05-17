@@ -1,0 +1,16 @@
+[Unit]
+Description=Mattermost IRC bridge
+After=network.target 
+Wants=mattermost.service
+
+[Service]
+Type=simple
+ExecStart=/srv/mattermost/bin/matterbridge
+Restart=always
+RestartSec=30
+WorkingDirectory=/srv/mattermost/config
+User=<placeholder>
+Group=<placeholder>
+
+[Install]
+WantedBy=multi-user.target

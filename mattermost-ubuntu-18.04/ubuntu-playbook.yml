@@ -1,0 +1,193 @@
+---
+- hosts: clients
+  remote_user: user
+  become: yes
+  
+  vars:
+    remote_server_ip: 10.10.10.10
+    admin_email: user@example.com
+    domain_name: example.com
+    db_user: mattermost
+    db_name: mattermost
+    db_password: secure_password
+    default_password: mostest
+    config_url: "https://gitlab.com/Insomniphobia/mattermost-ansible/-/raw/master/mattermost-ubuntu-18.04/config/config.json"
+    mattermost_url: "https://releases.mattermost.com/5.22.1/mattermost-5.22.1-linux-amd64.tar.gz"
+    systemd_url: "https://gitlab.com/Insomniphobia/mattermost-ansible/-/raw/master/mattermost-ubuntu-18.04/config/mattermost.service"
+    caddy2_url: https://github.com/caddyserver/caddy/releases/download/v2.1.0/caddy_2.1.0_linux_amd64.deb
+    caddyfile_url: https://gitlab.com/Insomniphobia/mattermost-ansible/-/raw/master/mattermost-ubuntu-18.04/config/Caddyfile
+
+  tasks:
+  - name: Install packages
+    apt:
+      name:
+      - python3-mysqldb
+      - python-mysqldb
+      - mysql-server
+      - snap
+      state: latest
+      
+  - name: Create a new database with name
+    mysql_db:
+      name: "{{ db_name }}"
+      state: present
+
+  - name: Create database user with password and all database privileges and 'WITH GRANT OPTION'
+    mysql_user:
+      name: "{{ db_user }}"
+      password: "{{ db_password }}"
+      priv: '*.*:ALL,GRANT'
+      state: present
+
+  - name: Delete database with name 'test'
+    mysql_db:
+      name: 'test'
+      state: absent
+      
+  - name: Removes anonymous user account
+    mysql_user:
+      name: ''
+      host_all: yes
+      state: absent
+
+  - name: Ensure users group exists
+    group:
+      name: "{{ db_user }}"
+      state: present
+      
+  - name: Add the mattermost user
+    user:
+      name: "{{ db_user }}"
+      shell: /bin/bash
+      groups: "{{ db_user }}"
+      append: yes     
+                  
+  - name: Download mattermost and place in /tmp
+    get_url:
+      url: "{{ mattermost_url }}"
+      dest: /tmp/mattermost.tar.gz
+      force_basic_auth: yes  
+      
+  - name: Unarchive mattermost.tar.tgz
+    unarchive:
+      src: /tmp/mattermost.tar.gz
+      dest: /tmp/
+      remote_src: yes
+
+  - name: Move tmp to opt
+    ignore_errors: yes
+    command: mv /tmp/mattermost /opt/mattermost/
+
+  - name: ansible create directory 
+    file:
+      path: /opt/mattermost/data
+      state: directory
+      
+  - name: ansible create directory 
+    file:
+      path: /opt/mattermost/data
+      state: directory
+      
+  - name: Touch config.json file
+    file:
+      path: /opt/mattermost/config/config.json
+      state: touch
+
+  - name: Change file /opt/mattermost permissions
+    file:
+      path: /opt/mattermost
+      state: directory
+      recurse: yes
+      owner: "{{ db_user }}"
+      group: "{{ db_user }}"
+      
+  - name: update apt
+    apt:
+      update_cache: yes
+
+  - name: Touch mattermost.service file
+    file:
+      path: /lib/systemd/system/mattermost.service
+      state: touch
+
+
+  - name: Download mattermost.service file
+    get_url:
+      url: "{{ systemd_url }}"
+      dest: /lib/systemd/system/mattermost.service
+      force_basic_auth: yes
+      
+  - name: Download config.json
+    get_url:
+      url: "{{ config_url }}"
+      dest: /opt/mattermost/config/config.json
+      force_basic_auth: yes
+
+  - name: Install matterbridge
+    snap:
+      name:
+        - matterbridge
+   
+  - replace:
+      dest: /opt/mattermost/config/config.json
+      regexp: 'mattermost_test'
+      replace: '{{ db_name}}'
+
+  - replace:
+      dest: /opt/mattermost/config/config.json
+      regexp: '<admin_email>'
+      replace: '{{ admin_email }}'
+      
+  - replace:
+      dest: /opt/mattermost/config/config.json
+      regexp: 'mostest'
+      replace: '{{ db_name}}'
+      
+  - replace:
+      dest: /opt/mattermost/config/config.json
+      regexp: '<pw-placeholder>'
+      replace: '{{ db_password }}'
+      
+  - replace:
+      dest: /opt/mattermost/config/config.json
+      regexp: '<placeholder>'
+      replace: '{{ db_user}}'
+      
+  - replace:
+      dest: /lib/systemd/system/mattermost.service
+      regexp: '<placeholder>'
+      replace: '{{ db_user }}'
+
+  - name: daemon-reload
+    systemd:
+      daemon_reload: yes  
+            
+  - name: ensure mattermost service is running
+    service:
+      name: mattermost
+      state: started
+      
+  - name: Download caddy2 binary
+    get_url:
+      url: "{{ caddy2_url }}"
+      dest: /tmp/caddy_linux_amd64.deb  
+
+  - name: Install caddy2 .deb
+    apt:
+      deb: /tmp/caddy_linux_amd64.deb
+      
+  - name: Download Caddyfile
+    get_url:
+      url: "{{ caddyfile_url }}"
+      dest: /etc/caddy/Caddyfile
+      force_basic_auth: yes
+      
+   - replace:
+      dest: /etc/caddy/Caddyfile
+      regexp: 'domain_name'
+      replace: '{{ domain_name }}'
+
+  - name: ensure caddy service is running
+    service:
+      name: caddy
+      state: started
